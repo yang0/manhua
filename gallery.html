@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>漫画风格与分镜图库</title>
+  <style>
+    :root { color-scheme: dark; font-family: "Microsoft YaHei", system-ui, sans-serif; background: #11131a; color: #f6f7fb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    body.modal-open { overflow: hidden; }
+    header { padding: 38px max(24px, calc((100vw - 1440px) / 2)); background: linear-gradient(115deg, #26223d, #101d2d); }
+    h1 { margin: 0 0 8px; font-size: clamp(28px, 4vw, 46px); }
+    p { color: #bac2d4; line-height: 1.6; }
+    main { width: min(1440px, calc(100% - 40px)); margin: 28px auto 70px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 20px 0; }
+    button { border: 1px solid #4d5b79; background: #1b2334; color: #e7ebf6; border-radius: 999px; padding: 9px 14px; cursor: pointer; font: inherit; }
+    button.active, button:hover { background: #6c63ff; border-color: #8e87ff; }
+    input { min-width: 260px; border: 1px solid #4d5b79; border-radius: 10px; padding: 10px 12px; color: #fff; background: #161c29; font: inherit; }
+    .meta { color: #8f9bb4; font-size: 14px; margin: 12px 0 20px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 22px; }
+    article { overflow: hidden; background: #191e2a; border: 1px solid #303a50; border-radius: 16px; }
+    .preview-button { display: block; width: 100%; padding: 0; border: 0; border-radius: 0; background: #252c3e; }
+    .preview-button:hover { background: #303a52; }
+    article img { display: block; width: 100%; height: auto; max-height: 620px; object-fit: contain; background: #252c3e; }
+    .copy { padding: 17px 18px 18px; }
+    .entries { display: flex; flex-wrap: wrap; gap: 8px; }
+    .entry { flex: 1 1 120px; min-width: 0; margin: 0; padding: 9px 11px; border-left: 3px solid #3d4962; border-radius: 5px; color: #bac2d4; font-size: 14px; }
+    .entry strong { color: #f6f7fb; }
+    .entry.match { border-left-color: #a59fff; background: #292442; color: #e2defe; }
+    .entry.match strong { color: #c7c1ff; }
+    .empty { color: #8f9bb4; grid-column: 1 / -1; padding: 30px; text-align: center; }
+    .viewer { position: fixed; inset: 0; z-index: 10; display: none; place-items: center; padding: 30px; background: rgba(4, 6, 12, .9); }
+    .viewer.open { display: grid; }
+    .viewer-panel { position: relative; width: min(1400px, 96vw); max-height: 94vh; padding: 16px; border: 1px solid #4d5b79; border-radius: 14px; background: #151a26; box-shadow: 0 24px 90px rgba(0,0,0,.55); }
+    .viewer-panel img { display: block; width: 100%; max-height: 82vh; object-fit: contain; }
+    .viewer-caption { margin: 10px 42px 0 0; color: #d8dced; }
+    .close { position: absolute; top: 8px; right: 10px; width: 36px; height: 36px; padding: 0; border-radius: 50%; font-size: 22px; line-height: 1; }
+    @media (max-width: 600px) { main { width: min(100% - 24px, 1440px); } .grid { grid-template-columns: 1fr; } input { width: 100%; min-width: 0; } .viewer { padding: 10px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>漫画风格与分镜图库</h1>
+    <p>每张预览图是一组四宫格：风格库 30 组 / 120 个编号，分镜库 20 组 / 80 个编号。点击图片可查看大图。</p>
+  </header>
+  <main>
+    <div class="controls">
+      <button class="active" data-kind="style">漫画风格（30 组 / 120 个编号）</button>
+      <button data-kind="storyboard">分镜机制（20 组 / 80 个编号）</button>
+      <input id="query" type="search" placeholder="搜索编号、名称或说明">
+    </div>
+    <div id="meta" class="meta"></div>
+    <section id="grid" class="grid"></section>
+  </main>
+
+  <div id="viewer" class="viewer" role="dialog" aria-modal="true" aria-label="四宫格大图预览">
+    <div class="viewer-panel">
+      <button id="closeViewer" class="close" type="button" aria-label="关闭大图">×</button>
+      <img id="viewerImage" alt="">
+      <div id="viewerCaption" class="viewer-caption"></div>
+    </div>
+  </div>
+
+  <script src="gallery-data.js"></script>
+  <script>
+    const catalog = window.COMIC_CATALOG;
+    const groups = Object.entries(catalog);
+    const styleKey = groups.find(([key, values]) => values.length === 120)[0];
+    const boardKey = groups.find(([key, values]) => values.length === 80)[0];
+    const config = {
+      style: { key: styleKey, folder: 'comic-style-previews', suffix: '_漫画类型演示.webp', label: '漫画风格', groupCount: 30, itemCount: 120 },
+      storyboard: { key: boardKey, folder: 'storyboard-previews', suffix: '_分镜机制演示.webp', label: '分镜机制', groupCount: 20, itemCount: 80 }
+    };
+    let current = 'style';
+    const grid = document.querySelector('#grid');
+    const query = document.querySelector('#query');
+    const meta = document.querySelector('#meta');
+    const viewer = document.querySelector('#viewer');
+    const viewerImage = document.querySelector('#viewerImage');
+    const viewerCaption = document.querySelector('#viewerCaption');
+    const pad = number => String(number).padStart(2, '0');
+
+    function imagePath(start, type) {
+      const c = config[type];
+      return `${c.folder}/${pad(start)}-${pad(start + 3)}${c.suffix}`;
+    }
+
+    function chunk(items) {
+      const result = [];
+      for (let index = 0; index < items.length; index += 4) result.push(items.slice(index, index + 4));
+      return result;
+    }
+
+    function matches(item, term) {
+      return !term || `${item.id} ${item.name} ${item.description}`.toLowerCase().includes(term);
+    }
+
+    function render() {
+      const c = config[current];
+      const term = query.value.trim().toLowerCase();
+      const allItems = catalog[c.key];
+      const grouped = chunk(allItems);
+      const visible = grouped.filter(items => !term || items.some(item => matches(item, term)));
+      meta.textContent = `${c.label}：显示 ${visible.length} / ${c.groupCount} 组，覆盖 ${c.itemCount} 个编号。搜索命中时会高亮对应编号。`;
+      grid.innerHTML = visible.length ? visible.map(items => {
+        const start = items[0].id;
+        const end = items[items.length - 1].id;
+        const path = imagePath(start, current);
+        const title = `${c.label} ${start}–${end}`;
+        const entries = items.map(item => `<p class="entry${term && matches(item, term) ? ' match' : ''}"><strong>#${item.id} ${item.name}</strong></p>`).join('');
+        return `<article><button class="preview-button" type="button" data-image="${path}" data-caption="${title}" aria-label="查看${title}大图"><img loading="lazy" src="${path}" alt="${title}四宫格预览"></button><div class="copy"><div class="entries">${entries}</div></div></article>`;
+      }).join('') : '<div class="empty">没有匹配项</div>';
+    }
+
+    function openViewer(path, caption) {
+      viewerImage.src = path;
+      viewerImage.alt = caption;
+      viewerCaption.textContent = caption;
+      viewer.classList.add('open');
+      document.body.classList.add('modal-open');
+    }
+
+    function closeViewer() {
+      viewer.classList.remove('open');
+      document.body.classList.remove('modal-open');
+      viewerImage.removeAttribute('src');
+    }
+
+    document.querySelectorAll('[data-kind]').forEach(button => button.addEventListener('click', () => {
+      current = button.dataset.kind;
+      document.querySelectorAll('[data-kind]').forEach(item => item.classList.toggle('active', item === button));
+      render();
+    }));
+    query.addEventListener('input', render);
+    grid.addEventListener('click', event => {
+      const button = event.target.closest('.preview-button');
+      if (button) openViewer(button.dataset.image, button.dataset.caption);
+    });
+    document.querySelector('#closeViewer').addEventListener('click', closeViewer);
+    viewer.addEventListener('click', event => { if (event.target === viewer) closeViewer(); });
+    document.addEventListener('keydown', event => { if (event.key === 'Escape' && viewer.classList.contains('open')) closeViewer(); });
+    render();
+  </script>
+</body>
+</html>

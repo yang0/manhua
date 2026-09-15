@@ -1,0 +1,4 @@
+interface:
+  display_name: "漫画页面生成"
+  short_description: "按风格、分镜编号和主题生成漫画"
+  default_prompt: "用风格 36、分镜 79，主题：雨夜山寺重逢，生成一页漫画。"
